@@ -1,12 +1,9 @@
-module Analyzer.ExamplesSpec where
+module Analyzer.ExamplesSpec (spec) where
 
 import Test.Hspec
 import TestUtil
-import Control.Monad
-import Lang.Library.Prelude
-import Index.Semantics.Global.Width
-import Index.Semantics.Global.GateCount
-import Index.Semantics.Local.Depth
+import PQ.Prelude
+import Metric
 
 spec :: Spec
 spec = do
