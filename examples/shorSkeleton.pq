@@ -5,13 +5,12 @@
 -- Utils
 
 -- apply the Hadamard gate to n qubits at depth d
-mapHadamard :: !(forall n. List[_<n+1] Qubit -o[0,0] List[_<n+1] Qubit)
-mapHadamard n (list) = 
-  let hadamardStep = lift forall step . \(qs,q) :: (List[_<step] Qubit{d+1}, Qubit{d}). qs:((force hadamard @n) q)
-  in fold(hadamardStep, [], list)
+mapHadamard = forall n . \x :: List[_<n+1] Qubit.
+  let hadamardStep = lift forall step . \(qs,q) :: (List[_<step] Qubit, Qubit). qs:((force hadamard @n) q)
+  in fold(hadamardStep, [], x)
 
 -- measure n qubits at depth d in the computational basis
-mapMeasure = forall n. \x :: List[_<n] Qubit.
+mapMeasure = forall n. \x :: List[_<n+1] Qubit.
   let measureStep = lift forall step. \(bs,q) :: (List[_<step] Bit, Qubit). bs:((force meas @ 0) q)
   in fold(measureStep, [], x)
 
@@ -20,9 +19,10 @@ qinit0Many = forall n.
   let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit{0}, ()). qs:(force qinit0)
   in fold(qinitStep, [], force range @n)
 
+
 -- init n qubits to |1>
 qinit1Many = forall n.
-  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit{0}, ()). qs:(force qinit1)
+  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit1)
   in fold(qinitStep, [], force range @n)
 
 -- iQFT
@@ -54,17 +54,16 @@ iqft n reg =
     in fold(qftIter, [], reg) -- List[i<n] Qubit{d+n+i}
 
 -- Shor circuit --
-
-shor :: !(forall n. forall we. Circ[we](List[_<n+1] Qubit, List[_<n+1] Qubit) -o[0,0] (List[_<n+1] Bit))
+shor :: !(forall n. forall we. Circ[we]((List[_<n+1] Qubit, List[_<n+1] Qubit),(List[_<n+1] Qubit, List[_<n+1] Qubit)) -o[0,0] (List[_<n+1] Bit, List[_<n+1] Bit))
 shor n we oracle = 
   -- init n qubits to |0> then apply hadamard 
-  let x = (force mapHadamard @n) (force qinit0Many @n) in
-  -- init n qubits to |0> 
-  let w = (force qinit0Many @n) in
+  let x = force qinit0Many @ n in
+  -- init n qubits to |0>  x in
+  let w = force qinit0Many @ n in
   -- oracle function
   let (x, a) = apply(oracle, (x, w)) in
   -- estemation of the fase with inverse QFT
   let r = (force iqft @n) x in -- iqft instead of qft
   -- measure the results
-  (force mapMeasure @n) r 
+  ((force mapMeasure @n) r, (force mapMeasure @n) a)
   -- |x>|w> -> (r, a),  where r is the period and a is the base (a^r mod N)
