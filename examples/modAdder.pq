@@ -64,7 +64,6 @@ csum (c, a, b) =
   let (c, b) = force cnot c b in
   (c, a, b)
 
--- ADDER
 -- (Fig. 2, first half)
 adderFirstPhase :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*n + 4, 0] (List[_<n+1] ((Qubit, Qubit), Qubit), Qubit))
 adderFirstPhase n (a, b) =
@@ -76,6 +75,7 @@ adderFirstPhase n (a, b) =
     (reslist : ((c, a), b), cnext) in
   fold(adderStepFirst, ([], initialAcc), abc)
 
+-- (Fig. 2, second half)
 adderSecondPhase :: ![0](forall[0,0] n. (Qubit, List[_<n] ((Qubit, Qubit), Qubit)) -o[3*n + 1, 0] (Qubit, List[_<n] (Qubit, Qubit)))
 adderSecondPhase n (cfirst, abc) =
   --subcircuit used in the second phase: carry followed by sum, carry discarded:
@@ -91,23 +91,20 @@ adderSecondPhase n (cfirst, abc) =
     (c, reslist:(a,b))
   in fold(adderStepSecond, (cfirst,[]), abc)
 
---whole adder circuit:
+-- Adder 
 adder :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
-adder n (a, b, c) =
-  let (rest:((c,a),b),lsb) = (force adderFirstPhase @n) (a,b) in
+adder n (a, b) =
+  let (rest:((c,a),b),carry) = (force adderFirstPhase @n) (a,b) in
   let (a,b) = force cnot a b in
   let (c,a,b) = force csum (c,a,b) in
   let (lastc, final) = (force adderSecondPhase @n) (c, rest) in
   let _ = (force qdiscard) lastc in
   let complete = (((force revpair @n) final) : (a,b)) in --add the first block back in
   let (ares,b) = (force qunzip @ n+1) complete in --separate a and b
-  let bres = b : lsb in -- add the lsb back in b
-  ((force rev @ n+1) ares, (force rev @ n+2) bres) --rearrange the bits in the right order
+  ((force rev @ n+1) ares, (force rev @ n+1) b, carry) --rearrange the bits in the right order
 
 
-{-
-Modular adder using previous adder implementation 
--}
+-- Modular Adder --
 
 {- 
 plan: (x* means ancilla, -1 means inverse function) 
@@ -153,7 +150,7 @@ deleteBlock n (list, temp) =
   in fold(deleteStep, ([],temp), list)
 
 -- Modular adder subroutine --
-modAdder :: !(forall n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o (List[_<n+1] Qubit, List[_<n+2] Qubit, Qubit))
+modAdder :: !(forall n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
 modAdder n (a, b, x) = 
   let (a, ab) = (force adder @n) (a, b) in -- a+b
   let (a, abx) = (force adder @n) (x, ab) in -- a+b-x SUBTRACTOR!!
