@@ -67,7 +67,7 @@ csum (c, a, b) =
 -- ADDER
 -- (Fig. 2, first half)
 adderFirstPhase :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*n + 4, 0] (List[_<n+1] ((Qubit, Qubit), Qubit), Qubit))
-adderFirstPhase n (a, b, carry) =
+adderFirstPhase n (a, b) =
   let ab = (force qzip @n) (a,b) in
   let abc = (force interleave @ n+1) ab in --every first position is a, every second is b, every third is c
   let initialAcc = apply(QInit0,()) in
@@ -95,7 +95,7 @@ adderSecondPhase n (cfirst, abc) =
 --whole adder circuit:
 adder :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
 adder n (a, b, carry) =
-  let (rest:((c,a),b),carry) = (force adderFirstPhase @n) (a,b) in 
+  let (rest:((c,a),b),carry) = (force adderFirstPhase @n) (a,b) in -- UNUSED VARIABLE carry ??
   -- carry = b_n+1 
   let (a,b) = force cnot a b in
   let (c,a,b) = force csum (c,a,b) in
