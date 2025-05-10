@@ -16,14 +16,13 @@ mapMeasure = forall n. \x :: List[_<n+1] Qubit.
 
 -- init n qubits to |0>
 qinit0Many = forall n.
-  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit{0}, ()). qs:(force qinit0)
-  in fold(qinitStep, [], force range @n)
-
+  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit0)
+  in fold(qinitStep, [], force range @(n+1))
 
 -- init n qubits to |1>
 qinit1Many = forall n.
   let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit1)
-  in fold(qinitStep, [], force range @n)
+  in fold(qinitStep, [], force range @(n+1))
 
 -- iQFT
 
@@ -42,7 +41,7 @@ rotate = forall iter. lift forall step.
     (ctrls:ctrl, trg) -- :: (List[i<step+1] Qubit{d+iter+i+1}, Qubit{d+iter+step+1})
 
 -- apply the Quantum Fourier Transform to n qubits at depth d
-iqft :: !(forall n. List[i<n] Qubit -o[n,0] List[i<n] Qubit)
+iqft :: ![0](forall[0,0] n. List[_<n+1] Qubit -o[n+1,0] List[_<n+1] Qubit)
 iqft n reg =
     let qftIter = lift forall iter. -- define the iteration of the QFT
       \(ctrls, trg)::(List[i<iter] Qubit, Qubit).
@@ -54,10 +53,10 @@ iqft n reg =
     in fold(qftIter, [], reg) -- List[i<n] Qubit{d+n+i}
 
 -- Shor circuit --
-shor :: !(forall n. forall we. Circ[we]((List[_<n+1] Qubit, List[_<n+1] Qubit),(List[_<n+1] Qubit, List[_<n+1] Qubit)) -o[0,0] (List[_<n+1] Bit, List[_<n+1] Bit))
+shor :: ![0](forall[0,0] n. forall[0,0] we. Circ[we]((List[_<n+1] Qubit, List[_<n+1] Qubit),(List[_<n+1] Qubit, List[_<n+1] Qubit)) -o[max(n + 1 + n + 1, we),0] (List[_<n+1] Bit, List[_<n+1] Bit))
 shor n we oracle = 
   -- init n qubits to |0> then apply hadamard 
-  let x = force qinit0Many @ n in
+  let x = (force mapHadamard @ n) (force qinit0Many @ n) in
   -- init n qubits to |0>  x in
   let w = force qinit0Many @ n in
   -- oracle function
