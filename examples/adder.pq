@@ -57,6 +57,14 @@ carry (c, a, b, cnext) =
   let (c, b, cnext) = force toffoli c b cnext in
   (c, a, b, cnext)
 
+-- REVERSE CARRY
+icarry :: ![0]((Qubit, Qubit, Qubit, Qubit) -o[4, 0] (Qubit, Qubit, Qubit, Qubit))
+icarry (c, a, b, cnext) =
+  let (c, b, cnext) = force toffoli c b cnext in
+  let (a,b) = force cnot a b in
+  let (a, b, cnext) = force toffoli a b cnext in
+  (c, a, b, cnext)
+
 -- SUM (Fig. 3.ii)
 csum :: ![0]((Qubit, Qubit, Qubit) -o[3, 0] (Qubit, Qubit, Qubit))
 csum (c, a, b) =
@@ -66,41 +74,47 @@ csum (c, a, b) =
 
 -- ADDER
 -- (Fig. 2, first half)
-adderFirstPhase :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*n + 4, 0] (List[_<n+1] ((Qubit, Qubit), Qubit), Qubit))
-adderFirstPhase n (a, b) =
+adderFirstPhase :: ![0](forall[0, 0] n. (List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, Qubit) -o[1 + (n + 1) * 3 + 1, 0] (List[_ < (n + 1) - 1 + 1] ((Qubit, Qubit), Qubit), Qubit))
+adderFirstPhase n (a, b, overflow) =
   let ab = (force qzip @n) (a,b) in
   let abc = (force interleave @ n+1) ab in --every first position is a, every second is b, every third is c
   let initialAcc = apply(QInit0,()) in
+  
+  -- Fix the n_b+1 last qubit
+  let rest:((a,b),c) = abc in
+  let _ = (force qdiscard) c in
+  let abc = rest:((a,b),overflow) in
+
   let adderStepFirst = lift forall step . \((reslist, c), ((a,b),cnext)) :: ((List[_<step] ((Qubit,Qubit),Qubit), Qubit), ((Qubit,Qubit),Qubit)) .
     let (c, a, b, cnext) = force carry (c, a, b, cnext) in
     (reslist : ((c, a), b), cnext) in
-  let (reslist,clast) = fold(adderStepFirst, ([], initialAcc), abc) in
-  (reslist,clast) -- note that the output triples are reversed
+  let (reslist,overflow) = fold(adderStepFirst, ([], initialAcc), abc) in
+  (reslist,overflow) -- note that the output triples are reversed
 
 adderSecondPhase :: ![0](forall[0,0] n. (Qubit, List[_<n] ((Qubit, Qubit), Qubit)) -o[3*n + 1, 0] (Qubit, List[_<n] (Qubit, Qubit)))
 adderSecondPhase n (cfirst, abc) =
   --subcircuit used in the second phase: carry followed by sum, carry discarded:
   let csum = lift \(c,a,b,cnext) :: (Qubit,Qubit,Qubit,Qubit). 
-      let (c,a,b,cnext) = force carry (c,a,b,cnext) in
+      let (c,a,b,cnext) = force icarry (c,a,b,cnext) in
       let (c,a,b) = force csum (c,a,b) in
       let _ = (force qdiscard) cnext in
       (c,a,b) in
   let boxedSum = box csum in
   --step function:
   let adderStepSecond = lift $ forall step. \((cnext, reslist),((c,a),b)) :: ((Qubit, (List[_<step] (Qubit,Qubit))),((Qubit,Qubit),Qubit)).
-    let (c,a,b) = apply(boxedSum, (c,a,b,cnext)) in
+    let (c,a,b,cnext) = apply(boxedSum, (c,a,b,cnext)) in 
     (c, reslist:(a,b))
   in fold(adderStepSecond, (cfirst,[]), abc)
 
 --whole adder circuit:
-adder :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
-adder n (a, b, carry) =
-  let (rest:((c,a),b),carry) = (force adderFirstPhase @n) (a,b) in -- UNUSED VARIABLE carry ??
-  -- carry = b_n+1 
+adder :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[1 + (n + 1) * 3 + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
+adder n (a, b, overflow) =
+  let (rest:((c,a),b),overflow) = (force adderFirstPhase @n) (a,b,overflow) in 
+  -- overflow = b_n+1 
   let (a,b) = force cnot a b in
   let (c,a,b) = force csum (c,a,b) in
   let (lastc, final) = (force adderSecondPhase @n) (c, rest) in
   let _ = (force qdiscard) lastc in
   let complete = (((force revpair @n) final) : (a,b)) in --add the first block back in
   let (ares,b) = (force qunzip @ n+1) complete in --separate a and b
-  ((force rev @ n+1) ares, (force rev @ n+1) b, carry) --rearrange the bits in the right order
+  ((force rev @ n+1) ares, (force rev @ n+1) b, overflow) --rearrange the bits in the right order
