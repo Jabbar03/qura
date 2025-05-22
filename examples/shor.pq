@@ -4,6 +4,15 @@
 
 --- Utils ---
 
+
+-- discard multiple bits
+{-
+cdiscardMany = forall n. \x :: List[_<n+1] Bit.
+  let cdiscardStep = lift forall step. \(_,q) :: ((),Bit).
+    let _ = (force cdiscard @ n) q 
+  in fold(cdiscardStep, [], x)
+-}
+
 -- discard multiple qubits
 {-
 qdiscardMany = forall n. \x :: List[_<n+1] Qubit.
@@ -76,48 +85,49 @@ iqft n d reg =
 
 -- modAdder :: !(forall n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
 
--- cMultMod :: !(forall n. (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit) -o[0,0] (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit))
+-- cModMult :: !(forall n. (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit, List[_<n+1] Bit) -o[0,0] (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit, List[_<n+1] Bit))
 
--- iCMultMod :: !(forall n. (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit) -o[0,0] (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit))
+-- iCModMult :: !(forall n. (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit, List[_<n+1] Bit) -o[0,0] (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit, List[_<n+1] Bit))
 
 {-
-modularExp :: !(forall n. (List [_<n+1] Qubit, List[_<n+1] Qubit) -o[2*(n+1),0] (List [_<n+1] Qubit, List[_<n+1] Qubit))
-modularExp n (x, reg1) = 
-    let modularStep = lift forall step . \((qs,reg0,reg1),q) :: ((List[_<step] Qubit, List[_<step] Qubit, List[_<step] Qubit), Qubit)
-    let (x, reg1, reg0) = (force cMultMod @n) q reg1 reg0 in 
-    let (x, reg1, reg0) = (force iCMultMod @n) q reg0 reg1 
+modularExp :: !(forall n. (List [_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit) -o[2*(n+1),0] (List [_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit))
+modularExp n (x, reg1, regMod) = 
+    let modularStep = lift forall step . \((qs,reg0,reg1,regMod),q) :: ((List[_<step] Qubit, List[_<step] Qubit, List[_<step] Qubit, List[_<n+1] Bit), Qubit)
+      let (x, reg1, reg0, regMod) = (force cModMult @n) q reg1 reg0 regMod in 
+      let (x, reg1, reg0, regMod) = (force iCModMult @n) q reg0 reg1 regMod 
     in fold(modularStep, ([],reg0,reg1), x)
 -}
 
-
 {-
-vbe :: ! (forall n. !((List[_<n+1] Qubit, List[_<n+1] Qubit) -o[7*(n+1), 0] (List[_<n+1] Bit, (List[_<n+1] Bit))))
-vbe n = box $ lift \(x, reg0) :: (List[_<n+1] Qubit, List[_<n+1] Qubit). 
+vbe :: ! (forall n. !((List[_<n+1] Qubit, List[_<n+1] Qubit) -o[0, 0] (List[_<n+1] Bit, (List[_<n+1] Bit))))
+vbe n = box $ lift \(x, reg0, regMod) :: (List[_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit). 
     -- init register 1, I initialize it here in order to keep the unitarity 
     let reg1 = (force qinit1Many @n) in  
     -- Modular exponentiation 
-    let (r, a, reg0) = (force modularExp @n) x reg1 reg0
+    let (r, a, reg0, regMod) = (force modularExp @n) x reg1 reg0 regMod
     let _ = (force qdiscardMany @n) reg0 in -- TODO qdiscardMany
-    (r, a)
+    (r, a, regMod)
 -}
 
 --- Shor circuit ---
-shor :: ![0](forall[0, 0] n. forall[0, 0] we. forall[0, 0] de. (forall[0, 0] d. Circ[we]((List[_ < n + 1] Qubit{d}, List[_ < n + 1] Qubit{d}), (List[_ < n + 1] Qubit{d + de}, List[_ < n + 1] Qubit{d + de}))) -o[max(n + 1 + n + 1, we), 0] (List[i < n + 1] Bit{de + 2 * n + 3 + 1}, List[i < n + 1] Bit{1 + de + 1}))
-shor n we de oracle = 
-  -- init n qubits to |0> then apply hadamard 
+--- !! Remember to add regMod/regQ to all subroutines ---
+shor :: ![0](forall[0, 0] n. forall[0, 0] we. forall[0, 0] de. (forall[0, 0] d. Circ[we]((List[_ < n + 1] Qubit{d}, List[_ < n + 1] Qubit{d}, List [_<n+1] Bit), (List[_ < n + 1] Qubit{d + de}, List[_ < n + 1] Qubit{d + de}, List [_<n+1] Qubit))) -o[max(n + 1 + n + 1, we), 0] (List[i < n + 1] Bit{de + 2 * n + 3 + 1}, List[i < n + 1] Bit{1 + de + 1}, List [_<n+1] Bit))
+shor n we de (oracle, regMod) = 
+  -- prepare n qubits in the state |0> then apply hadamard 
   let x = (force mapHadamard @ n @ 0) (force qinit0Many @ n) in
-  -- init n qubits to |0>  x in
+  -- prepare n qubits in the state |0> 
   let w = force qinit0Many @ n in
   -- oracle function
-  let (x, a) = apply(oracle @ 1, (x, w)) in
-  -- estemation of the phase with inverse QFT
+  let (x, a, regMod) = apply(oracle @ 1, (x, w, regMod)) in
+  -- phase estimation throught inverse QFT
   let r = (force iqft @ n @ 1 + de) x in 
   -- measure the results
-  ((force mapMeasure @ n @ de + 2*n + 3) r, (force mapMeasure @ n @ 1 + de) a)
-  -- |x>|w> -> (r, a),  where r is the period and a is the base (a^r mod N)
+  ((force mapMeasure @ n @ de + 2*n + 3) r, (force mapMeasure @ n @ 1 + de) a, regMod)
+  -- |x>|w> -> (r, a), where r is the period and a is the base (a^r mod N)
 
--- shor vbe @n 
+-- shor @n vbe regMod 
 
--- The type of the function let the user choose what type of subroutine shor can execute
--- change the oracle subroutine with another implementation, call shor with another subroutine instead of vbe
+-- The type of the function let the user choose which type of subroutine shor can perform
+-- oracle is the subroutine that performs the modular exponentiation
+-- regMod is the binary register of the number that we want to factorize
 -- I do not assume any relation between p and q (N = pq)
