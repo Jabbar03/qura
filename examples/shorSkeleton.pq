@@ -57,7 +57,7 @@ shor :: ![0](forall[0, 0] n. forall[0, 0] we. forall[0, 0] de. (forall[0, 0] d. 
 shor n we de oracle = 
   -- init n qubits to |0> then apply hadamard 
   let x = (force mapHadamard @ n @ 0) (force qinit0Many @ n) in
-  -- init n qubits to |0>  x in
+  -- init n qubits to |0>
   let w = force qinit0Many @ n in
   -- oracle function
   let (x, a) = apply(oracle @ 1, (x, w)) in
