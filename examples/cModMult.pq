@@ -1,5 +1,4 @@
-{-
-  Control Modular Multiplier
+{- Control Modular Multiplier
 -}
 
 -- c    = control bit
@@ -11,24 +10,36 @@
 -- idea: 
 -- scorrere su regA trovare il bit giusto usando range @ i poi fare toffoli sul bit trovato c e q come controlli, poi "ricostruire" regA
 
--- discard multiple qubits
-{-
-qdiscardMany = forall n. \x :: List[_<n+1] Qubit.
-  let qdiscardStep = lift forall step. \(_,q) :: ((),Qubit).
-    let _ = (force qdiscard @ n) q 
-  in fold(qdiscardStep, [], x)
-  -}
 
---- short-hands
+--- short-hands ---
 qnot = (force qnot @0)
 cnot = (force cnot @0@0)
 toffoli = (force toffoli @0@0@0)
 qdiscard = (force qdiscard @0)
+ccnot = (force ccnot @0 @0)
 
+-- discard multiple qubits
+qdiscardMany = forall n. \x :: List[_<n+1] Qubit.
+  let qdiscardStep = lift forall step. \(_,q) :: ((),Qubit).
+    force qdiscard q 
+  in fold(qdiscardStep, (), x)
+
+-- initialize a qubit |0> from a bit
+qinitFromBit :: ![0](Bit -o[2,0] (Bit, Qubit))
+qinitFromBit b =
+  let q = force qinit0 in force ccnot b q
+
+-- initialize qubits register from a bit register
+qinitFromBits :: ![0](forall[0, 0] n. List[i < n + 1] Bit -o[max[step < n + 1]2 + step + step + (n + 1) - (step + 1), 0] (List[i < n + 1] Bit, List[i < n + 1] Qubit))
+qinitFromBits n bs =
+  let qinitStep = lift forall step. \((bs,qs), b) :: ((List[i<step] Bit, List[i<step] Qubit), Bit).
+    let (b, q) = force qinitFromBit b in
+    (bs:b, qs:q)
+  in fold(qinitStep, ([],[]), bs)
 
 -- measure n qubits at depth d in the computational basis
 mapMeasure = forall n. \x :: (List[i<n+1] Qubit).
-  let measureStep = lift forall step. \(bs,q) :: (List[i<step] Bit, Qubit). bs:((force meas) q)
+  let measureStep = lift forall step. \(bs,q) :: (List[i<step] Bit, Qubit). bs:((force meas @0) q)
   in fold(measureStep, [], x)
 
 -- reverses a list of i qubits
@@ -133,17 +144,6 @@ adder n (a, b, overflow) =
   let (ares,b) = (force qunzip @ n+1) complete in --separate a and b
   ((force rev @ n+1) ares, (force rev @ n+1) b, overflow) --rearrange the bits in the right order
 
--- Modular Adder --
-{- plan: (x* means ancilla, -1 means inverse function) 
-  input: a b N* 0* 
-  1. a+b = adder a b 
-  2. a+b-N = adder-1 a+b N
-  cnot-1 (on the MSB) a+b-N_n+1 (check if overflow occurs) if yes nothing happens coz you need to add N again, if no it means that you have to subtract N 
-  3. a+b-N+t*N = adder a+b-N t*N
-  4. a+b-N+t*N-a = adder-1 a a+b-N+t*N
-  5. a+b-N+t*N-a+a = adder a a+b-N+t*N-a
--}
-
 -- inverse adder
 {-
 subtractor :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+2] Qubit))
@@ -178,7 +178,7 @@ modAdder n (a, b, x) =
   let (x, temp) = (force deleteBlock @n) (tx, temp) in
   let (a, abxtxa, overflow) = (force adder @n) (a, abxtx, overflow) in -- a+b-x+t*x-a SUBTRACTOR!!
 
-  -- Make temp qbit return to |0>
+  -- Make temp qubit return to |0>
   let (overflow,temp) = (force cnot) overflow temp in 
 
   let (a, abxtxaa) = (force adder @n) (a, abxtxa, overflow) in -- a+b-x+t*x-a+a
@@ -194,7 +194,7 @@ qinit0Many = forall n.
   in fold(qinitStep, [], force range @n+1)
 
 -- concatenate a list of n qubits and a list of m qubits (both lists can be empty)
-concat :: !(forall n. forall m. (List [_<n] Qubit, List [_<m] Qubit) -o[0,0] (List [_<n + m] Qubit))
+concat :: ![0](forall[0,0] n. forall[0,0] m. (List [_<n] Qubit, List [_<m] Qubit) -o[m + n, 0] (List [_<n + m] Qubit))
 concat n m (a, b) = 
   let concatStep = lift forall step. \(a,q) :: (List[_<n+step] Qubit, Qubit). a:q
   in fold (concatStep, a, (force rev @m) b)  
@@ -202,7 +202,7 @@ concat n m (a, b) =
 -- i starts from 0
 -- find the i-th qubit in a list
 
-findBit :: !(forall n. forall i. (List[_<n+1] Qubit) -o[0,0] (List[_<i+1] Qubit, List[_<(n+1)-(i+1)] Qubit))
+findBit :: ![0](forall[0, 0] n. forall[0, 0] i. List[_ < n + 1] Qubit -o[max[step < i + 1]step + 1 + (n - step + 1) - 1, 0] (List[_ < i + 1] Qubit, List[_ < (n + 1) - (i + 1)] Qubit))
 findBit n i regA =
   let regA = (force rev @ n+1) regA in -- in order to correctly search from the end
   let findStep = lift forall step. \((llist,rlist),_) :: ((List [_<step] Qubit, List [_<(n+1)-step] Qubit),()). 
@@ -212,7 +212,7 @@ findBit n i regA =
   (llist, (force rev @(n+1)-(i+1)) rlist) 
 
 -- Single Bit-Wise Toffoli: toffili gate on the regA's k-th bit based on the i-th iteration of cMultModStep function
-bitWiseToffoli :: !(forall n. forall i. (Qubit, Qubit, List[_<n+1] Qubit) -o[0,0] (Qubit, Qubit, List[_<n+1] Qubit))
+bitWiseToffoli :: ![0](forall[0, 0] n. forall[0, 0] i. (Qubit, Qubit, List[_ < n + 1] Qubit) -o[(max[step000 < i + 1]step000 + 1 + (n - step000 + 1) - 1) + 2, 0] (Qubit, Qubit, List[_ < n + 1] Qubit))
 bitWiseToffoli n i (c, q, regA) =
   -- find the qubit for the toffoli operation (placed at the end of llist)
   let (llist,rlist) = (force findBit @ n @ i) regA in
@@ -225,7 +225,7 @@ bitWiseToffoli n i (c, q, regA) =
   (c,q,regA !:: List[_<n+1] Qubit)
 
 -- brown Block: move the x block into regB if the control bit is |0>
-moveBlock :: !(forall n. (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit) -o[0,0] (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit))
+moveBlock :: ![0](forall[0,0] n. (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit) -o[2*n + 3,0] (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit))
 moveBlock n (c, x, regB) = 
   -- First X gate for inverse CNOT
   let c = force qnot c in
@@ -239,30 +239,35 @@ moveBlock n (c, x, regB) =
 
 --- Control Modular Multiplier ---
 -- The operation on regMod/regQ are done inside the step function in order to have a correct depth approximation of the register 
-cModMult :: !(forall n. (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit, List[_<n+1] Bit) -o[0,0] (Qubit, List [_<n+1] Qubit, List [_<n+1] Qubit, List[_<n+1] Bit))
-cMultMod n (c, x, regB, regMod) =
+cModMult :: ![0](forall[0, 0] n. (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit) -o[max[step < n + 1]max((max[step000 < step + 1]step000 + 1 + (n - step000 + 1) - 1) + 2 + step + n + 1 + n + 1 + n + 1, max(4 * (n + 1) + 3 + step + n + 1 + 2, max(n + 1 + n + 1 + step + n + 1 + 1 + n + 1 + 1, (max[step000 < step + 1]step000 + 1 + (n - step000 + 1) - 1) + 2 + step + n + 1 + n + 1))) + (n + 1) - (step + 1), 0] (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit))
+cModMult n (c, x, regB, regMod) =
   -- Init working register (a*2^k)
   let regA = (force qinit0Many @ n) in
 
   -- Control Modular Step Function
-  let cModMultStep = lift forall step. \((c,qs,regA,regB,regQ),q) :: ((Qubit, List [_<step] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit), Qubit).
+  let cModMultStep = lift forall step. \((c,qs,regA,regB,regMod),q) :: ((Qubit, List [_<step] Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit), Qubit).
+    -- Prepare the qubits register from classic register
+    let (regMod, regQ) = (force qinitFromBits @ n) regMod in
 
-      -- Prepare the qubits register from classic register
-      let regQ = force //// @ n regMod in
+    -- First toffoli on regA's k-th bit
+    let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
 
-      -- First toffoli on regA's k-th bit
-      let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
-      -- Modular Adder 
-      let (regA,regB,regQ) = (force modAdder @ n) (regA, regB, regQ) in
+    -- Modular Adder 
+    let (regA,regB,regQ) = (force modAdder @ n) (regA, regB, regQ) in
 
-      -- Return the Classical register
-      let regMod = (force mapMeasure @n) regQ in
+    -- Discard regQ 
+    let _ = (force qdiscardMany @ n) regQ in -- qdiscardMany 
 
-      -- Second toffoli on regA's k-th bit
-      (force bitWiseToffoli @ n @ step) (c, q, regA) in
+    -- Second toffoli on regA's k-th bit
+    let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
+
+    (c,qs:q,regA,regB,regMod) in
+
   -- Fold loop
   let (c,x,regA,regB,regMod) = fold(cModMultStep, (c,[],regA,regB,regMod), x) in
   -- Copy x into regB if c = 0
-  let _ = (qdiscard @ n) regA in -- qdiscardMany 
-  -- we perform a measure on regQ so we keep the correct type through the circuit
-  ((force moveBlock @ n) (c, x, regB),regMod) 
+  let _ = (force qdiscardMany @ n) regA in -- qdiscardMany 
+  -- moveBlock last to return x register if c = 0
+  let (c,x,regB) = (force moveBlock @ n) (c, x, regB) in
+  -- Return 
+  (c, x, regB, regMod)
