@@ -66,18 +66,29 @@ icarry (c, a, b, cnext) =
 -- SUM (Fig. 3.ii)
 csum :: ![0]((Qubit, Qubit, Qubit) -o[3, 0] (Qubit, Qubit, Qubit))
 csum (c, a, b) =
-  let (a,b) = force cnot a b in
   let (c, b) = force cnot c b in
+  let (a, b) = force cnot a b in
   (c, a, b)
 
 -- First part
-subtractorFirstPhase :: ![0](forall[0,0] n. (Qubit, List[_<n] ((Qubit, Qubit), Qubit)) -o[3*n + 1, 0] (Qubit, List[_<n] (Qubit, Qubit)))
-subtractorFirstPhase n (cfirst, abc) =
-  --subcircuit used in the second phase: carry followed by sum, carry discarded:
+subtractorFirstPhase :: ![0](forall[0,0] n. (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*n + 1, 0] (Qubit, List[_<n + 1] Qubit, List[_<n+1] Qubit))
+subtractorFirstPhase n (overflow, a, b) =
+  -- init
+  let ab = (force qzip @ n) (a,b) in
+  -- every first position is a, every second is b, every third is c
+  let abc = (force interleave @ n+1) ab in 
+  -- insert c_0 in front of the list of 3-tuple 
+  let initialAcc = apply(QInit0,()) in
+  
+  -- fix the n_b+1 last qubit with overflow qubit for easier management
+  let rest:((a,b),c) = abc in
+  let _ = (force qdiscard) c in
+  let abc = rest:((a,b),overflow) in
+
+  -- subcircuit used in the first phase: carry followed by sum, carry discarded
   let csum = lift \(c,a,b,cnext) :: (Qubit,Qubit,Qubit,Qubit). 
-      let (c,a,b,cnext) = force icarry (c,a,b,cnext) in
       let (c,a,b) = force csum (c,a,b) in
-      let _ = (force qdiscard) cnext in
+      let (c,a,b,cnext) = force carry (c,a,b,cnext) in -- opposite icarry == carry
       (c,a,b) in
   let boxedSum = box csum in
   --step function:
@@ -90,33 +101,28 @@ subtractorFirstPhase n (cfirst, abc) =
 subtractorSecondPhase :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*n + 4, 0] (List[_<n+1] ((Qubit, Qubit), Qubit), Qubit))
 subtractorSecondPhase n (a, b) =
   let subtractorStepSecond = lift forall step . \((reslist, c), ((a,b),cnext)) :: ((List[_<step] ((Qubit,Qubit),Qubit), Qubit), ((Qubit,Qubit),Qubit)) .
-    let (c, a, b, cnext) = force carry (c, a, b, cnext) in
-    (reslist : ((c, a), b), cnext) in
-  let (reslist,clast) = fold(subtractorStepSecond, ([], initialAcc), abc) in
+    let (c, a, b, cnext) = force icarry (c, a, b, cnext) in
+    let _ = (force qdiscard) cnext in
+    (reslist : ((c, a), b)) in
+  let (reslist,clast) = fold(subtractorStepSecond, (overflow, []), abc) in
   (reslist,clast) -- note that the output triples are reversed
-
 
 -- Subtractor
 subtractor :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
 subtractor n (a, b, overflow) =
-
-  -- init
-  let ab = (force qzip @n) (a,b) in
-  let abc = (force interleave @ n+1) ab in --every first position is a, every second is b, every third is c
-  let initialAcc = apply(QInit0,()) in
-
   -- first part
-  let (lastc, final) = (force subtractorFirstPhase @n) (c, rest) in
+  let (rest:((c,a),b),overflow) = (force subtractorFirstPhase @n) (overflow, a, b) in
 
   -- bottom of the valley / middle part
-  let (a,b) = force cnot a b in
   let (c,a,b) = force csum (c,a,b) in
+  let (a,b) = force cnot a b in
 
   -- final part
-  let (rest:((c,a),b),overflow) = (force subtractorSecondPhase @n) (a,b) in 
+  let (overflow,final) = (force subtractorSecondPhase @n) () in -- ??
 
   -- parsing of the qubits
-  let _ = (force qdiscard) lastc in
   let complete = (((force revpair @n) final) : (a,b)) in --add the first block back in
   let (ares,b) = (force qunzip @ n+1) complete in --separate a and b
   ((force rev @ n+1) ares, (force rev @ n+1) b, overflow) --rearrange the bits in the right order
+
+-- This is the single gate invese subroutine of the adder subroutine
