@@ -1,4 +1,5 @@
-{- Control Modular Multiplier
+{- 
+  Control Modular Multiplier
 -}
 
 -- c    = control bit
@@ -212,7 +213,7 @@ findBit n i regA =
   (llist, (force rev @(n+1)-(i+1)) rlist) 
 
 -- Single Bit-Wise Toffoli: toffili gate on the regA's k-th bit based on the i-th iteration of cMultModStep function
-bitWiseToffoli :: ![0](forall[0, 0] n. forall[0, 0] i. (Qubit, Qubit, List[_ < n + 1] Qubit) -o[(max[step000 < i + 1]step000 + 1 + (n - step000 + 1) - 1) + 2, 0] (Qubit, Qubit, List[_ < n + 1] Qubit))
+bitWiseToffoli :: ![0](forall[0, 0] n. forall[0, 0] i. (Qubit, Qubit, List[_ < n + 1] Qubit) -o[(max[step < i + 1]step + 1 + (n - step + 1) - 1) + 2, 0] (Qubit, Qubit, List[_ < n + 1] Qubit))
 bitWiseToffoli n i (c, q, regA) =
   -- find the qubit for the toffoli operation (placed at the end of llist)
   let (llist,rlist) = (force findBit @ n @ i) regA in
@@ -239,7 +240,7 @@ moveBlock n (c, x, regB) =
 
 --- Control Modular Multiplier ---
 -- The operation on regMod/regQ are done inside the step function in order to have a correct depth approximation of the register 
-cModMult :: ![0](forall[0, 0] n. (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit) -o[max[step < n + 1]max((max[step000 < step + 1]step000 + 1 + (n - step000 + 1) - 1) + 2 + step + n + 1 + n + 1 + n + 1, max(4 * (n + 1) + 3 + step + n + 1 + 2, max(n + 1 + n + 1 + step + n + 1 + 1 + n + 1 + 1, (max[step000 < step + 1]step000 + 1 + (n - step000 + 1) - 1) + 2 + step + n + 1 + n + 1))) + (n + 1) - (step + 1), 0] (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit))
+cModMult :: ![0](forall[0, 0] n. (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit) -o[max[step < n + 1]max((max[step < step + 1]step + 1 + (n - step + 1) - 1) + 2 + step + n + 1 + n + 1 + n + 1, max(4 * (n + 1) + 3 + step + n + 1 + 2, max(n + 1 + n + 1 + step + n + 1 + 1 + n + 1 + 1, (max[step < step + 1]step + 1 + (n - step + 1) - 1) + 2 + step + n + 1 + n + 1))) + (n + 1) - (step + 1), 0] (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit))
 cModMult n (c, x, regB, regMod) =
   -- Init working register (a*2^k)
   let regA = (force qinit0Many @ n) in
