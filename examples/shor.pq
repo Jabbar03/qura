@@ -296,7 +296,7 @@ cModMult n (c, x, regB, regMod) =
   -- Fold loop
   let (c,x,regA,regB,regMod) = fold(cModMultStep, (c,[],regA,regB,regMod), x) in
   -- Copy x into regB if c = 0
-  let _ = (force qdiscardMany @ n) regA in -- qdiscardMany 
+  let _ = (force qdiscardMany @ n) regA in 
   -- moveBlock last to return x register if c = 0
   let (c,x,regB) = (force moveBlock @ n) (c, x, regB) in
   -- Return 
@@ -310,8 +310,7 @@ modularExp :: ![0](forall[0, 0] n. (List[_ < n + 1] Qubit, List[_ < n + 1] Qubit
 modularExp n (x, reg1, reg0, regMod) = 
   let modularStep = lift forall step . \((qs,reg0,reg1,regMod),q) :: ((List[_<step] Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit), Qubit).
     let (q, reg1, reg0, regMod) = (force cModMult @n) (q,reg1,reg0,regMod) in 
-    -- iCModMult!!
-    let (q, reg0, reg1, regMod) = (force cModMult @n) (q,reg1,reg0,regMod) in 
+    let (q, reg0, reg1, regMod) = (force cModMult @n) (q,reg1,reg0,regMod) in -- iCModMult!!
     (qs:q,reg1,reg0,regMod) 
     in fold(modularStep, ([],reg1,reg0,regMod), x) 
 
