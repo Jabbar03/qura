@@ -53,6 +53,11 @@ revpair = forall n.\list::List[_<n] (Qubit,Qubit).
   let revStep = lift forall step.\(qs, q)::(List[_<step] (Qubit,Qubit), (Qubit,Qubit)). qs:q
   in fold(revStep, [], list)
 
+-- reverses a list of i triplets of qubits
+revtriplets = forall n. \list::List[_<n] ((Qubit,Qubit),Qubit).
+  let revStep = lift forall step.\(qs, q)::(List[_<step] ((Qubit,Qubit),Qubit), ((Qubit,Qubit),Qubit)). qs:q
+  in fold(revStep, [], list)
+
 -- zips two lists of i qubits
 qzip = forall n . \(a,b) :: (List[_<n+1] Qubit, List[_<n+1] Qubit).
   let qzipStep = lift forall step. \((llist,reslist),relem) :: ((List[_<(n+1)-step] Qubit, List[_<step] (Qubit,Qubit)), Qubit).
@@ -145,7 +150,64 @@ adder n (a, b, overflow) =
   let (ares,b) = (force qunzip @ n+1) complete in --separate a and b
   ((force rev @ n+1) ares, (force rev @ n+1) b, overflow) --rearrange the bits in the right order
 
--- inverse adder
+--- Subtractor Utils ---
+
+-- First part
+subtractorFirstPhase :: ![0](forall[0,0] n. List[_<n] (Qubit, Qubit) -o[3*n+1, 0] (List[_<n] ((Qubit,Qubit),Qubit),Qubit))
+subtractorFirstPhase n ab =
+  -- every first position is a, every second is b, every third is c
+  let abc = (force interleave @ n) ab in 
+  -- insert c_0 in front of the list of 3-tuple 
+  let initialAcc = (force qinit0) in
+  
+  -- subcircuit used in the first phase: carry followed by sum, carry discarded
+  let csum = lift \(c,a,b,cnext) :: (Qubit,Qubit,Qubit,Qubit). 
+      let (c,a,b) = force csum (c,a,b) in
+      let (c,a,b,cnext) = force carry (c,a,b,cnext) in -- opposite icarry == carry
+      (c,a,b,cnext) in
+  let boxedSum = box csum in
+  --step function:
+  let subtractorStepFirst = lift $ forall step. \((reslist,cnext),((c,a),b)) :: (((List[_<step] ((Qubit,Qubit),Qubit)),Qubit),((Qubit,Qubit),Qubit)).
+    let (c,a,b,cnext) = apply(boxedSum, (c,a,b,cnext)) in
+    (reslist:((c,a),b),cnext)
+  in fold(subtractorStepFirst, ([],initialAcc), (force revtriplets @n) abc) -- since the stepfunc will reverse the list we premtivily reverse it
+
+-- Second part
+subtractorSecondPhase :: ![0](forall[0,0] n. (List[_<n] ((Qubit,Qubit),Qubit),Qubit) -o[3*n+1, 0] (List[_<n] (Qubit, Qubit), Qubit))
+subtractorSecondPhase n (list, clast) =
+  let subtractorStepSecond = lift forall step . \((reslist, c), ((a,b),cnext)) :: ((List[_<step] (Qubit,Qubit), Qubit), ((Qubit,Qubit),Qubit)) .
+    let (c, a, b, cnext) = force icarry (c, a, b, cnext) in
+    let _ = (force qdiscard) cnext in
+    (reslist:(a,b),c) in
+  let (reslist,cfirst) = fold(subtractorStepSecond, ([],clast), list) in
+  (reslist,cfirst) -- note that the output triples are reversed
+
+-- Subtractor
+subtractor :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
+subtractor n (a, b, overflow) =
+  -- first part
+  let ab = (force qzip @n) (a,b) in
+  -- this operation will be done n times (on list_n+1) so we save up the last pair (a,b) then single handedly manage it
+  let ab:(alast,blast) = ab in
+  let (list,clast) = (force subtractorFirstPhase @n) ab in
+  
+  -- bottom of the valley, individually handle
+  let (clast,alast,blast) = force csum (clast,alast,blast) in
+  let (alast,blast) = force cnot alast blast in
+  let (clast,alast,blast,overflow) = force icarry (clast,alast,blast,overflow) in
+
+  -- final part: carry operation and discard of c qubits
+  -- input: list_n+1 triplets + overflow
+  -- output: list_n+1 pairs + overflow
+  let (list,cfirst) = (force subtractorSecondPhase @n) ((force revtriplets @n) list, clast) in
+
+  -- discard the last carry qubit 
+  let _ = force qdiscard cfirst in
+  -- reassemble the last pair into the list
+  let list = list:(alast,blast) in
+  -- parsing of the qubits
+  let (a,b) = (force qunzip @ n+1) list in --separate a and b
+  ((force rev @ n+1) a, (force rev @ n+1) b, overflow) --rearrange the bits in the right order
 {-
 subtractor :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit, List[_<n+2] Qubit))
 subtractor n (a, b) = 
@@ -168,7 +230,7 @@ modAdder n (a, b, x) =
   -- init temp qubit
   let temp = (force qinit0) in 
   let (a, ab, overflow) = (force adder @n) (a, b, overflow) in -- a+b
-  let (x, abx, overflow) = (force adder @n) (x, ab, overflow) in -- a+b-x SUBTRACTOR!!
+  let (x, abx, overflow) = (force subtractor @n) (x, ab, overflow) in -- a+b-x
   -- Inverse CNOT
   let overflow = (force qnot) overflow in
   let (overflow,temp) = (force cnot) overflow temp in 
@@ -177,9 +239,9 @@ modAdder n (a, b, x) =
   let (tx, temp) = (force deleteBlock @n) (x, temp) in -- cancel block (CNOTs??)
   let (tx, abxtx, overflow) = (force adder @n) (tx, abx, overflow) in -- a+b-x+t*x
   let (x, temp) = (force deleteBlock @n) (tx, temp) in
-  let (a, abxtxa, overflow) = (force adder @n) (a, abxtx, overflow) in -- a+b-x+t*x-a SUBTRACTOR!!
+  let (a, abxtxa, overflow) = (force subtractor @n) (a, abxtx, overflow) in -- a+b-x+t*x-a 
 
-  -- Make temp qubit return to |0>
+  -- Make temp qbit return to |0>
   let (overflow,temp) = (force cnot) overflow temp in 
 
   let (a, abxtxaa) = (force adder @n) (a, abxtxa, overflow) in -- a+b-x+t*x-a+a
