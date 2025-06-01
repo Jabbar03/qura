@@ -17,6 +17,11 @@ revpair = forall n. forall d. \list::List[_<n] (Qubit{d},Qubit{d}).
   let revStep = lift forall step.\(qs, q)::(List[_<step] (Qubit{d},Qubit{d}), (Qubit{d},Qubit{d})). qs:q
   in fold(revStep, [], list)
 
+-- reverses a list of i triplets of qubits
+revtriplets = forall n. forall d. \list::List[_<n+1] ((Qubit{d},Qubit{d}),Qubit{d}).
+  let revStep = lift forall step.\(qs, q)::(List[_<step] ((Qubit{d},Qubit{d}),Qubit{d}), ((Qubit{d},Qubit{d}),Qubit{d})). qs:q
+  in fold(revStep, [], list)
+
 -- zips two lists of i qubits
 qzip = forall n . forall d. \(a,b) :: (List[_<n+1] Qubit{d}, List[_<n+1] Qubit{d}).
   let qzipStep = lift forall step. \((llist,reslist),relem) :: ((List[_<(n+1)-step] Qubit{d}, List[_<step] (Qubit{d},Qubit{d})), Qubit{d}).
@@ -35,7 +40,8 @@ qunzip = forall n . forall d. \a :: List[_<n] (Qubit{d},Qubit{d}).
 
 interleave = forall n . forall d. \a :: List[_<n] (Qubit{d},Qubit{d}). 
   let interleaveStep = lift forall step . \(reslist, pair) :: (List[_<step] ((Qubit{d},Qubit{d}),Qubit{d}), (Qubit{d},Qubit{d})).
-    let c = apply(QInit0,()) in reslist:(pair,c)
+    let (a,b) = pair in
+    let c = force qinit0 in reslist:((c,a),b)
   in fold(interleaveStep, [], (force revpair @ n @ d) a)
 
 --- short-hands ---
@@ -54,7 +60,7 @@ qdiscard = (force qdiscard @0)
 -- CARRY (Fig. 3.i)
 carry :: ![0](forall[0,0] d. (Qubit{d}, Qubit{d}, Qubit{d}, Qubit{d}) -o[4, 0] (Qubit{d+5}, Qubit{d+4}, Qubit{d+5}, Qubit{d+5}))
 carry d (c, a, b, cnext) =
-  let (a, b, cnext) = (force toffoli @d+2 @d @d) a b cnext in
+  let (a, b, cnext) = (force toffoli @d @d @d) a b cnext in
   let (a,b) = (force cnot @d+3 @d+3) a b in
   let (c, b, cnext) = (force toffoli @d @d+4 @d+3) c b cnext in
   (c, a, b, cnext)
@@ -62,7 +68,7 @@ carry d (c, a, b, cnext) =
 -- REVERSE CARRY
 icarry :: ![0](forall[0,0] d. (Qubit{d}, Qubit{d}, Qubit{d}, Qubit{d}) -o[4, 0] (Qubit{d+3}, Qubit{d+5}, Qubit{d+5}, Qubit{d+5}))
 icarry d (c, a, b, cnext) =
-  let (c, b, cnext) = (force toffoli @d+2 @d @d) c b cnext in
+  let (c, b, cnext) = (force toffoli @d @d @d) c b cnext in
   let (a,b) = (force cnot @d+3 @d+3) a b in
   let (a, b, cnext) = (force toffoli @d+4 @d+4 @d+3) a b cnext in
   (c, a, b, cnext)
@@ -76,22 +82,17 @@ csum d (c, a, b) =
 
 --- Adder subroutines ---
 -- (Fig. 2, first half)
-adderFirstPhase :: ![0](forall[0,0] n. forall[0,0] d. (List[_ < n + 1] Qubit{d}, List[_ < n + 1] Qubit{d}, Qubit{d}) -o[1 + (n + 1) * 3 + 1, 0] (List[_ < (n + 1) - 1 + 1] ((Qubit{d}, Qubit{d}), Qubit{d}), Qubit{d}))
+adderFirstPhase :: ![0](forall[0,0] n. forall[0,0] d. (List[_ < n + 1] Qubit{d}, List[_ < n + 1] Qubit{d}, Qubit{d}) -o[3*(n + 1) + 1, 0] (List[_ < n + 1] ((Qubit{d}, Qubit{d}), Qubit{d}), Qubit{d}))
 adderFirstPhase n d (a, b, overflow) =
   let ab = (force qzip @ n @ d) (a,b) in
-  let abc = (force interleave @ n+1 @ d) ab in --every first position is a, every second is b, every third is c
-  let initialAcc = apply(QInit0,()) in
+  let cab = (force interleave @ n+1 @ d) ab in --every first position is c, every second is a, every third is b
   
-  -- Fix the n_b+1 last qubit
-  let rest:((a,b),c) = abc in
-  let _ = (force qdiscard @d) c in
-  let abc = rest:((a,b),overflow) in
 
-  let adderStepFirst = lift forall step . \((reslist, c), ((a,b),cnext)) :: ((List[_<step] ((Qubit{d},Qubit{d+5}),Qubit{d+4}), Qubit{d+5}), ((Qubit{d},Qubit{d}),Qubit{d})) .
-    let (c, a, b, cnext) = (force carry @d) (c, a, b, cnext) in
+  let adderStepFirst = lift forall step . \((reslist, c), ((a,b),cnext)) :: ((List[_<step] ((Qubit{d+5+5},Qubit{d+5+4}),Qubit{d+5+5}), Qubit{d+5}), ((Qubit{d},Qubit{d}),Qubit{d})) .
+    let (c, a, b, cnext) = (force carry @d+5) (c, a, b, cnext) in
     (reslist : ((c, a), b), cnext) in
-  let (reslist,overflow) = fold(adderStepFirst, ([], initialAcc), abc) in
-  (reslist,overflow) -- note that the output triples are reversed
+  let (reslist,overflow) = fold(adderStepFirst, ([], overflow), cab) in
+  ((force revtriplets @n @d) reslist, overflow) -- note that the output triples are reversed so return them in the right order 
 
 adderSecondPhase :: ![0](forall[0,0] n. forall[0,0] d. (Qubit{d}, List[_<n] ((Qubit{d}, Qubit{d}), Qubit{d})) -o[3*n + 1, 0] (Qubit{d}, List[_<n] (Qubit{d}, Qubit{d})))
 adderSecondPhase n d (cfirst, abc) =
@@ -109,7 +110,7 @@ adderSecondPhase n d (cfirst, abc) =
   in fold(adderStepSecond, (cfirst,[]), abc)
 
 --- Adder ---
-adder :: ![0](forall[0,0] n. forall[0,0] d. (List[_<n+1] Qubit{d}, List[_<n+1] Qubit{d}, Qubit{d}) -o[1 + (n + 1) * 3 + 1, 0] (List[_<n+1] Qubit{d}, List[_<n+1] Qubit{d}, Qubit{d}))
+adder :: ![0](forall[0,0] n. forall[0,0] d. (List[_<n+1] Qubit{d}, List[_<n+1] Qubit{d}, Qubit{d}) -o[3*(n+1) + 1, 0] (List[_<n+1] Qubit{d}, List[_<n+1] Qubit{d}, Qubit{d}))
 adder n d (a, b, overflow) =
   let (rest:((c,a),b),overflow) = (force adderFirstPhase @ n @ d) (a,b,overflow) in
   let (a,b) = (force cnot @d @d) a b in
@@ -117,5 +118,5 @@ adder n d (a, b, overflow) =
   let (lastc, final) = (force adderSecondPhase @ n @ d) (c, rest) in
   let _ = (force qdiscard @ d) lastc in
   let complete = (((force revpair @ n @ d) final) : (a,b)) in --add the first block back in
-  let (ares,b) = (force qunzip @ n+1 @ d) complete in --separate a and b
-  ((force rev @ n+1 @ d) ares, (force rev @ n+1 @ d) b, overflow) --rearrange the bits in the right order
+  let (a,b) = (force qunzip @ n+1 @ d) complete in --separate a and b
+  ((force rev @ n+1 @ d) a, (force rev @ n+1 @ d) b, overflow) --rearrange the bits in the right order
