@@ -1,3 +1,5 @@
+Questions:
+- [] revtriplets adderFistPhase?
 Must
 - [] subtractor type & width
 - [] depth Analysis
@@ -9,3 +11,4 @@ Must
 Extras
 - [] deleteBlock proof
 - [] type coercions proofs (cModMult.pq)
+- [] slightly improvement on width estimation in adder subroutine
