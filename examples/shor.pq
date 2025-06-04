@@ -11,6 +11,16 @@ ccnot = (force ccnot @0 @0)
 
 --- General Utils ---
 
+-- init n qubits to |1>
+qinit1Many = forall n.
+  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit1)
+  in fold(qinitStep, [], force range @n+1)
+
+-- init n qubits to |0>
+qinit0Many = forall n.
+  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit0)
+  in fold(qinitStep, [], force range @n+1)
+
 -- discard multiple qubits
 qdiscardMany = forall n. \x :: List[_<n+1] Qubit.
   let qdiscardStep = lift forall step. \(_,q) :: ((),Qubit).
@@ -23,7 +33,7 @@ qinitFromBit b =
   let q = force qinit0 in force ccnot b q
 
 -- initialize qubits register from a bit register
-qinitFromBits :: ![0](forall[0, 0] n. List[i < n + 1] Bit -o[max[step < n + 1]2 + step + step + (n + 1) - (step + 1), 0] (List[i < n + 1] Bit, List[i < n + 1] Qubit))
+qinitFromBits :: ![0](forall[0, 0] n. List[i < n + 1] Bit -o[max[step < n + 1]step + n + 2, 0] (List[i < n + 1] Bit, List[i < n + 1] Qubit))
 qinitFromBits n bs =
   let qinitStep = lift forall step. \((bs,qs), b) :: ((List[i<step] Bit, List[i<step] Qubit), Bit).
     let (b, q) = force qinitFromBit b in
@@ -77,8 +87,13 @@ interleave = forall n . \a :: List[_<n] (Qubit,Qubit).
     let c = force qinit0 in reslist:(pair,c)
   in fold(interleaveStep, [], (force revpair @n) a)
 
+-- concatenate a list of n qubits and a list of m qubits (both lists can be empty)
+concat :: ![0](forall[0,0] n. forall[0,0] m. (List [_<n] Qubit, List [_<m] Qubit) -o[m + n, 0] (List [_<n + m] Qubit))
+concat n m (a, b) = 
+  let concatStep = lift forall step. \(a,q) :: (List[_<n+step] Qubit, Qubit). a:q
+  in fold (concatStep, a, (force rev @m) b)  
 
---- Inverse Quantum Fourier Transform --- 
+--- Inverse Quantum Fourier Transformation --- 
 
 --- iQFT Utils ---
 
@@ -111,6 +126,7 @@ iqft n d reg =
 
 --- Modular Arthimetic based on VBE ---
 
+
 --- Adder Utilities ---
 
 -- carry (Fig. 3.i)
@@ -137,26 +153,23 @@ csum (c, a, b) =
   (c, a, b)
 
 -- (Fig. 2, first half)
-adderFirstPhase :: ![0](forall[0, 0] n. (List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, Qubit) -o[1 + (n + 1) * 3 + 1, 0] (List[_ < (n + 1) - 1 + 1] ((Qubit, Qubit), Qubit), Qubit))
+adderFirstPhase :: ![0](forall[0, 0] n. (List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, Qubit) -o[3 * (n + 1) + 1, 0] (List[_ < (n + 1)] ((Qubit, Qubit), Qubit), Qubit))
 adderFirstPhase n (a, b, overflow) =
   let ab = (force qzip @n) (a,b) in
-  let abc = (force interleave @ n+1) ab in --every first position is a, every second is b, every third is c
-  let initialAcc = apply(QInit0,()) in
-  
-  -- Fix the n_b+1 last qubit
-  let rest:((a,b),c) = abc in
-  let _ = (force qdiscard) c in
-  let abc = rest:((a,b),overflow) in
+  let reslist:(a,b) = ab in 
+  let reslist = (force interleave @ n) reslist in --every first position is a, every second is b, every third is c
+  let abc = reslist:((a,b),overflow) in -- add the overflow qubit at the end of the last 3-tuple
+  let cfirst = force qinit0 in -- init the first carry qubit
 
   let adderStepFirst = lift forall step . \((reslist, c), ((a,b),cnext)) :: ((List[_<step] ((Qubit,Qubit),Qubit), Qubit), ((Qubit,Qubit),Qubit)) .
     let (c, a, b, cnext) = force carry (c, a, b, cnext) in
     (reslist : ((c, a), b), cnext) in
-  let (reslist,overflow) = fold(adderStepFirst, ([], initialAcc), abc) in
-  (reslist,overflow) -- note that the output triples are reversed
+  let (reslist,overflow) = fold(adderStepFirst, ([], cfirst), abc) in
+  ((force revtriplets @n+1) reslist,overflow) -- note that the output triples are reversed
 
 adderSecondPhase :: ![0](forall[0,0] n. (Qubit, List[_<n] ((Qubit, Qubit), Qubit)) -o[3*n + 1, 0] (Qubit, List[_<n] (Qubit, Qubit)))
 adderSecondPhase n (cfirst, abc) =
-  --subcircuit used in the second phase: carry followed by sum, carry discarded:
+  --carry followed by sum, carry discarded
   let csum = lift \(c,a,b,cnext) :: (Qubit,Qubit,Qubit,Qubit). 
       let (c,a,b,cnext) = force icarry (c,a,b,cnext) in
       let (c,a,b) = force csum (c,a,b) in
@@ -170,7 +183,7 @@ adderSecondPhase n (cfirst, abc) =
   in fold(adderStepSecond, (cfirst,[]), abc)
 
 -- Adder
-adder :: ![0](forall[0,0] n. (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit) -o[1 + (n + 1) * 3 + 1, 0] (List[_<n+1] Qubit, List[_<n+1] Qubit, Qubit))
+adder :: ![0](forall[0,0] n. (List[_< n + 1] Qubit, List[_< n + 1] Qubit, Qubit) -o[3 * (n + 1) + 1, 0] (List[_< n + 1] Qubit, List[_< n + 1] Qubit, Qubit))
 adder n (a, b, overflow) =
   let (rest:((c,a),b),overflow) = (force adderFirstPhase @n) (a,b,overflow) in 
   -- overflow = b_n+1 
@@ -311,22 +324,6 @@ iModAdder n (a, b, x) =
 
 --- Control Modular Multiplier Utils ---
 
--- init n qubits to |1>
-qinit1Many = forall n.
-  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit1)
-  in fold(qinitStep, [], force range @n+1)
-
--- init n qubits to |0>
-qinit0Many = forall n.
-  let qinitStep = lift forall step. \(qs,u) :: (List[_<step] Qubit, ()). qs:(force qinit0)
-  in fold(qinitStep, [], force range @n+1)
-
--- concatenate a list of n qubits and a list of m qubits (both lists can be empty)
-concat :: ![0](forall[0,0] n. forall[0,0] m. (List [_<n] Qubit, List [_<m] Qubit) -o[m + n, 0] (List [_<n + m] Qubit))
-concat n m (a, b) = 
-  let concatStep = lift forall step. \(a,q) :: (List[_<n+step] Qubit, Qubit). a:q
-  in fold (concatStep, a, (force rev @m) b)  
-
 -- i starts from 0
 -- find the i-th qubit in a list
 findBit :: ![0](forall[0, 0] n. forall[0, 0] i. List[_ < n + 1] Qubit -o[max[step < i + 1]step + 1 + (n - step + 1) - 1, 0] (List[_ < i + 1] Qubit, List[_ < (n + 1) - (i + 1)] Qubit))
@@ -351,7 +348,7 @@ bitWiseToffoli n i (c, q, regA) =
   let regA = (force concat @ i+1 @ (n+1)-(i+1)) (w, rlist) in
   (c,q,regA !:: List[_<n+1] Qubit)
 
--- brown Block: move the x block into regB if the control bit is |0>
+-- "brown Block": move the x block into regB if the control bit is |0>
 moveBlock :: ![0](forall[0,0] n. (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit) -o[2*n + 3,0] (Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit))
 moveBlock n (c, x, regB) = 
   -- First X gate for inverse CNOT
@@ -370,26 +367,19 @@ cModMult :: ![0](forall[0, 0] n. (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] 
 cModMult n (c, x, regB, regMod) =
   -- Init working register (a*2^k)
   let regA = (force qinit0Many @ n) in
-
   -- Control Modular Step Function
   let cModMultStep = lift forall step. \((c,qs,regA,regB,regMod),q) :: ((Qubit, List [_<step] Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit), Qubit).
     -- Prepare the qubits register from classic register
     let (regMod, regQ) = (force qinitFromBits @ n) regMod in
-
     -- First toffoli on regA's k-th bit
     let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
-
     -- Modular Adder 
     let (regA,regB,regQ) = (force modAdder @ n) (regA, regB, regQ) in
-
     -- Discard regQ 
     let _ = (force qdiscardMany @ n) regQ in -- qdiscardMany 
-
     -- Second toffoli on regA's k-th bit
     let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
-
     (c,qs:q,regA,regB,regMod) in
-
   -- Fold loop
   let (c,x,regA,regB,regMod) = fold(cModMultStep, (c,[],regA,regB,regMod), x) in
   -- Copy x into regB if c = 0
@@ -399,35 +389,28 @@ cModMult n (c, x, regB, regMod) =
   -- Return 
   (c, x, regB, regMod)
 
+
 --- Control Modular Multiplier ---
 
 iCModMult :: ![0](forall[0, 0] n. (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit) -o[max[step < n + 1]max((max[step < step + 1]step + 1 + (n - step + 1) - 1) + 2 + step + n + 1 + n + 1 + n + 1, max(4 * (n + 1) + 3 + step + n + 1 + 2, max(n + 1 + n + 1 + step + n + 1 + 1 + n + 1 + 1, (max[step < step + 1]step + 1 + (n - step + 1) - 1) + 2 + step + n + 1 + n + 1))) + (n + 1) - (step + 1), 0] (Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Qubit, List[_ < n + 1] Bit))
 iCModMult n (c, x, regB, regMod) =
   -- Init working register (a*2^k)
   let regA = (force qinit0Many @ n) in
-
   -- Move the prepared register x into regB if c = 0
   let (c,x,regB) = (force moveBlock @ n) (c, x, regB) in
-
   -- Control Modular Step Function
   let cModMultStep = lift forall step. \((c,qs,regA,regB,regMod),q) :: ((Qubit, List [_<step] Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit), Qubit).
     -- Prepare the qubits register from classic register
     let (regMod, regQ) = (force qinitFromBits @ n) regMod in
-
     -- First toffoli on regA's k-th bit
     let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
-
     -- Inverse Modular Adder 
     let (regA,regB,regQ) = (force iModAdder @ n) (regA, regB, regQ) in
-
     -- Discard regQ 
     let _ = (force qdiscardMany @ n) regQ in
-
     -- Second toffoli on regA's k-th bit
     let (c,q,regA) = (force bitWiseToffoli @ n @ step) (c, q, regA) in 
-
     (c,qs:q,regA,regB,regMod) in
-
   -- Fold loop
   let (c,x,regA,regB,regMod) = fold(cModMultStep, (c,[],regA,regB,regMod), x) in
   -- discard regA
@@ -442,9 +425,10 @@ modularExp :: ![0](forall[0, 0] n. (List[_ < n + 1] Qubit, List[_ < n + 1] Qubit
 modularExp n (x, reg1, reg0, regMod) = 
   let modularStep = lift forall step . \((qs,reg0,reg1,regMod),q) :: ((List[_<step] Qubit, List[_<n+1] Qubit, List[_<n+1] Qubit, List[_<n+1] Bit), Qubit).
     let (q, reg1, reg0, regMod) = (force cModMult @n) (q,reg1,reg0,regMod) in 
-    let (q, reg0, reg1, regMod) = (force iCModMult @n) (q,reg1,reg0,regMod) in -- iCModMult!!
+    let (q, reg0, reg1, regMod) = (force iCModMult @n) (q,reg1,reg0,regMod) in
     (qs:q,reg1,reg0,regMod) 
     in fold(modularStep, ([],reg1,reg0,regMod), x) 
+
 
 --- Oracle VBE ---
 
