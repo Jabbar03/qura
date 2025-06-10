@@ -1,13 +1,13 @@
 Questions:
-- [] revtriplets adderFistPhase?
+- [] revtriplets adderFirstPhase?
 Must
-- [] subtractor type & width
+- [x] subtractor type & width
 - [] depth Analysis
     - [] shor
     - [x] shorSkeleton
     - [] cModMult & iCModMult
     - [] modAdder & iModAdder
-    - [] adder & subtractor
+    - [x] adder & subtractor
 Extras
 - [] deleteBlock proof
 - [] type coercions proofs (cModMult.pq)
